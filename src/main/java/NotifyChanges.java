@@ -2,17 +2,19 @@ import com.google.gson.Gson;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.apache.commons.cli.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.*;
-
-import org.apache.commons.cli.*;
-
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -69,12 +71,14 @@ public class NotifyChanges {
                     try {
                         Response response = client.newCall(request).execute();
                         Document doc = Jsoup.parse(response.body().string());
-                        String result = doc.select(configuration.cssQuery).get(0).text();
+                        String newResult = doc.select(configuration.cssQuery).get(0).text();
 
+                        SimpleDateFormat formatter = new SimpleDateFormat("dd MMM HH:mm");
                         if (doc.select(configuration.cssQuery).get(0).text().equals(configuration.expectedResult)) {
-                            System.out.format("NO CHANGES: '%s' = %s \n", configuration.name, configuration.expectedResult);
+                            System.out.format("%s NO CHANGES: '%s' = %s \n", formatter.format(new Date()), configuration.name, configuration.expectedResult);
                         } else {
-                            System.out.format("!CHANGES: %s = %s \n", result, configuration.expectedResult);
+                            Runtime.getRuntime().exec(new String[]{"/usr/bin/notify-send", "CHANGED: " + configuration.name, newResult});
+                            System.out.format("%s !CHANGES: %s = %s \n", formatter.format(new Date()), configuration.name, newResult);
                         }
                     } catch (Exception e) {
                         System.out.println("Error!");
@@ -91,6 +95,10 @@ public class NotifyChanges {
         }
 
         executorService.shutdown();
+    }
+
+    void gnomeNotify(String name, String newValue) throws IOException {
+
     }
 
     static class SiteParseConfiguration {
