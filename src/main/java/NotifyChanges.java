@@ -1,4 +1,9 @@
 import com.google.gson.Gson;
+import com.sendgrid.Method;
+import com.sendgrid.SendGrid;
+import com.sendgrid.helpers.mail.Mail;
+import com.sendgrid.helpers.mail.objects.Content;
+import com.sendgrid.helpers.mail.objects.Email;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -19,11 +24,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
-/**
- * TODOS:
- * 1. move configuration to external JSON file
- * 2. notify via Email and Telegram about changes
- */
 public class NotifyChanges {
     public static void main(String[] args) throws Exception {
         // create Options object
@@ -33,6 +33,14 @@ public class NotifyChanges {
         Option input = new Option(null, "configPath", true, "Path to configuration file.");
         input.setRequired(true);
         options.addOption(input);
+
+        Option emailAddress = new Option(null, "email", true, "Email that serves as FROM and TO.");
+        emailAddress.setRequired(true);
+        options.addOption(emailAddress);
+
+        Option sendGridAPI = new Option(null, "sendGridAPI", true, "SendGrid API key.");
+        sendGridAPI.setRequired(true);
+        options.addOption(sendGridAPI);
 
         // Create a command line parser
         CommandLineParser parser = new DefaultParser();
@@ -60,6 +68,8 @@ public class NotifyChanges {
 
         OkHttpClient client = new OkHttpClient();
 
+        SendGridEmailService sendGridEmailService = new SendGridEmailService(cmd.getOptionValue("sendGridAPI"));
+
         List<Runnable> calls = siteParseConfigurations.stream().map((configuration) -> {
             return new Runnable() {
                 @Override
@@ -77,7 +87,7 @@ public class NotifyChanges {
                         if (doc.select(configuration.cssQuery).get(0).text().equals(configuration.expectedResult)) {
                             System.out.format("%s NO CHANGES: '%s' = %s \n", formatter.format(new Date()), configuration.name, configuration.expectedResult);
                         } else {
-                            Runtime.getRuntime().exec(new String[]{"/usr/bin/notify-send", "CHANGED: " + configuration.name, newResult});
+                            sendGridEmailService.email(cmd.getOptionValue("email"), cmd.getOptionValue("email"), "CHANGED: " + configuration.name, newResult).send();
                             System.out.format("%s !CHANGES: %s = %s \n", formatter.format(new Date()), configuration.name, newResult);
                         }
                     } catch (Exception e) {
@@ -97,8 +107,43 @@ public class NotifyChanges {
         executorService.shutdown();
     }
 
-    void gnomeNotify(String name, String newValue) throws IOException {
+    static class SendGridEmailService {
+        SendGrid sendGrid;
 
+        public SendGridEmailService(String sendGridAPI) {
+            this.sendGrid = new SendGrid(sendGridAPI);
+        }
+
+        NotificationEmail email(String fromString, String toString, String subject, String body) {
+            return new NotificationEmail(this.sendGrid, fromString, toString, subject, body);
+        }
+    }
+
+    static class NotificationEmail {
+        private SendGrid sendGrid;
+        private Mail mail;
+
+        public NotificationEmail(SendGrid sendGrid, String fromString, String toString, String subject, String body) {
+            this.sendGrid = sendGrid;
+
+            Email from = new Email(fromString);
+            Email to = new Email(toString);
+            Content content = new Content("text/plain", body);
+            this.mail = new Mail(from, subject, to, content);
+        }
+
+        void send() {
+            com.sendgrid.Request request = new com.sendgrid.Request();
+
+            try {
+                request.setMethod(Method.POST);
+                request.setEndpoint("mail/send");
+                request.setBody(this.mail.build());
+                this.sendGrid.api(request);
+            } catch (IOException ex) {
+                System.out.println(ex);
+            }
+        }
     }
 
     static class SiteParseConfiguration {
