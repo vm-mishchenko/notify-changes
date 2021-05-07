@@ -10,6 +10,7 @@ import okhttp3.Response;
 import org.apache.commons.cli.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.jsoup.select.Elements;
 
 import java.io.File;
 import java.io.IOException;
@@ -24,6 +25,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+/**
+ * TODO:
+ * 1. ignore email notification if email or SendGridAPI are absent
+ * 2.
+ */
 public class NotifyChanges {
     public static void main(String[] args) throws Exception {
         // create Options object
@@ -35,11 +41,9 @@ public class NotifyChanges {
         options.addOption(input);
 
         Option emailAddress = new Option(null, "email", true, "Email that serves as FROM and TO.");
-        emailAddress.setRequired(true);
         options.addOption(emailAddress);
 
         Option sendGridAPI = new Option(null, "sendGridAPI", true, "SendGrid API key.");
-        sendGridAPI.setRequired(true);
         options.addOption(sendGridAPI);
 
         // Create a command line parser
@@ -81,13 +85,25 @@ public class NotifyChanges {
                     try {
                         Response response = client.newCall(request).execute();
                         Document doc = Jsoup.parse(response.body().string());
-                        String newResult = doc.select(configuration.cssQuery).get(0).text();
+                        Elements elements = doc.select(configuration.cssQuery);
+                        if (elements.size() == 0) {
+                            if (cmd.hasOption("email") && cmd.hasOption("sendGridAPI")) {
+                                sendGridEmailService.email(cmd.getOptionValue("email"), cmd.getOptionValue("email"), configuration.name + " has invalid CSS query", "").send();
+                            }
+
+                            throw new Error("Cannot find element in provided cssQuery: " + configuration.cssQuery);
+                        }
+
+                        String newResult = elements.get(0).text();
 
                         SimpleDateFormat formatter = new SimpleDateFormat("dd MMM HH:mm");
                         if (doc.select(configuration.cssQuery).get(0).text().equals(configuration.expectedResult)) {
                             System.out.format("%s NO CHANGES: '%s' = %s \n", formatter.format(new Date()), configuration.name, configuration.expectedResult);
                         } else {
-                            sendGridEmailService.email(cmd.getOptionValue("email"), cmd.getOptionValue("email"), "CHANGED: " + configuration.name, newResult).send();
+                            if (cmd.hasOption("email") && cmd.hasOption("sendGridAPI")) {
+                                sendGridEmailService.email(cmd.getOptionValue("email"), cmd.getOptionValue("email"), "CHANGED: " + configuration.name, newResult).send();
+                            }
+
                             System.out.format("%s !CHANGES: %s = %s \n", formatter.format(new Date()), configuration.name, newResult);
                         }
                     } catch (Exception e) {
